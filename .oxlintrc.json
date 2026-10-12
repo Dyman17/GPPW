@@ -1,4 +1,15 @@
 {
-  "extends": ["./node_modules/@runablehq/runkit/oxlintrc.json"],
-  "ignorePatterns": ["dist/**", "dist-electron/**", ".expo/**", "packages/web/public/runable.js"]
+  "$schema": "https://raw.githubusercontent.com/oxc-project/oxc/main/npm/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "import"],
+  "categories": {
+    "correctness": "error",
+    "perf": "warn",
+    "suspicious": "warn",
+    "style": "off"
+  },
+  "ignorePatterns": [
+    "dist/**",
+    ".turbo/**",
+    "packages/db/drizzle/**"
+  ]
 }

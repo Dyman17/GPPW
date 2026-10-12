@@ -1,0 +1,24 @@
+{
+  "name": "@gppw/db",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "db:generate": "bun --env-file=../../.env drizzle-kit generate",
+    "db:migrate": "bun --env-file=../../.env drizzle-kit migrate",
+    "db:push": "bun --env-file=../../.env drizzle-kit push"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.2.0",
+    "drizzle-orm": "^0.45.2"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.5",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "7.0.1-rc"
+  }
+}
