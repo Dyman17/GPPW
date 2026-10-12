@@ -3,8 +3,13 @@ import { serveStatic } from "@hono/node-server/serve-static";
 import type { Context } from "hono";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { closeDb } from "@gppw/db";
+import { closeDb, migrateDb, seedDemoListings } from "@gppw/db";
 import app from "./index";
+
+const migrationsFolder = fileURLToPath(new URL("../../../../packages/db/drizzle/", import.meta.url));
+await migrateDb(migrationsFolder);
+const seededCount = await seedDemoListings();
+console.info(`Demo catalog ready (${seededCount} new listings added).`);
 
 const distDirectory = fileURLToPath(new URL("../../dist/", import.meta.url));
 const indexHtml = fileURLToPath(new URL("../../dist/index.html", import.meta.url));
