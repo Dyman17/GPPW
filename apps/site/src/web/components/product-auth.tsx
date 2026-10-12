@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { X, ArrowRight, Loader2, BookOpen } from "lucide-react";
 import { DemoDialog } from "./demo-dialog";
-import { authClient, captureToken } from "../lib/auth";
+import { authClient } from "../lib/auth";
 import type { Translate } from "../lib/product";
 export function ProductAuth({
   t,
@@ -49,7 +49,6 @@ export function ProductAuth({
               const args = {
                 email: String(f.get("email")),
                 password: String(f.get("password")),
-                fetchOptions: { onSuccess: captureToken },
               };
               const result = register
                 ? await authClient.signUp.email({ ...args, name: String(f.get("name")) })

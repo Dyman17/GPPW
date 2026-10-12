@@ -7,18 +7,17 @@
 ```
 .
 ├── apps/
-│   └── site/            ← сайт: React (Vite) + API (Hono/oRPC) — деплой на Vercel
-│       ├── api/         ← serverless-вход для Vercel (все запросы /api/*)
-│       ├── src/api/     ← бэкенд: процедуры oRPC, маршруты, auth
+│   └── site/            ← React (Vite) + API (Hono/oRPC) — один Render Web Service
+│       ├── src/api/     ← Hono/oRPC, Better Auth и production server
 │       └── src/web/     ← фронтенд: страницы, компоненты, запросы
 └── packages/
-    └── db/              ← база данных: схема Drizzle + миграции — Neon (Postgres)
+    └── db/              ← PostgreSQL: Drizzle-схема, миграции и pg pool
         ├── src/schema/  ← auth.ts (пользователи), market.ts (товары),
         │                  chat.ts (чаты)
         └── drizzle/     ← сгенерированные миграции
 ```
 
-Идея разнесения простая: **сайт** (фронт + бэк) живёт в `apps/site` и деплоится на Vercel, а **данные** (пользователи, товары, чаты) — в `packages/db`, подключается к базе Neon по Postgres через строку `DATABASE_URL`.
+Frontend и backend работают в одном Render Web Service с общим origin. Это сохраняет same-origin cookies Better Auth и не требует отдельной CORS-настройки между сайтами. PostgreSQL работает как Render Postgres и подключается через `DATABASE_URL` по внутренней сети Render.
 
 ## Локальный запуск
 
@@ -47,29 +46,22 @@ bun run build       # продакшен-сборка
 
 ## Деплой
 
-### База — Neon
+### Render
 
-1. Создайте проект в [Neon](https://neon.tech), скопируйте **pooled** connection string.
-2. Прогоните миграции: `DATABASE_URL=... bun run db:push` (или `db:migrate`).
-
-### Сайт — Vercel
-
-1. Импортируйте репозиторий в Vercel.
-2. **Root Directory** → `apps/site`.
-3. Include source files outside of the Root Directory: **включено** (нужно для workspace `@gppw/db`).
-4. Переменные окружения: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `WEBSITE_URL` (домен продакшена).
-
-Всё самонастраивается через `apps/site/vercel.json`: сборка Vite → `dist/`, `api/[...path].ts` отдаёт `/api/*`, реврайт остальных путей на `index.html` (SPA-роутинг).
+`render.yaml` описывает Render Web Service, который собирает Vite frontend и запускает Hono API вместе с ним, а также Render PostgreSQL. Blueprint передаёт приложению внутренний `DATABASE_URL` и генерирует `BETTER_AUTH_SECRET`. Миграции намеренно не запускаются автоматически: сначала проверьте целевую базу и примените `bun run db:migrate` к Render PostgreSQL. Если нужно перенести существующие данные, сначала сделайте проверенную резервную копию и отдельный план импорта.
 
 ## Переменные окружения
 
 | Переменная        | Назначение                                        |
 | ----------------- | ------------------------------------------------- |
-| `DATABASE_URL`    | Pooled connection string Neon (Postgres)          |
+| `DATABASE_URL`    | Внутренняя connection string Render PostgreSQL    |
 | `BETTER_AUTH_SECRET` | Секрет для Better Auth (`openssl rand -base64 32`) |
-| `WEBSITE_URL`     | Публичный адрес сайта                             |
+| `BETTER_AUTH_URL` | Необязательный канонический origin Better Auth; при отсутствии используется `WEBSITE_URL` |
+| `WEBSITE_URL`     | Публичный адрес сайта; Render Blueprint связывает его с `RENDER_EXTERNAL_URL` |
 | `WEBSITE_PORT`    | Порт локального dev-сервера (по умолчанию 4200)   |
 
 ## API
 
-Процедуры определены в `apps/site/src/api/routes/` (`market.ts`, `chats.ts`, `ping.ts`) и монтируются через oRPC в `src/api/index.ts`. Серверные функции доступны по адресу `/api/rpc/*`; авторизация — Better Auth на `/api/auth/*` (email + пароль, server-side сессии).
+Процедуры определены в `apps/site/src/api/routes/` (`market.ts`, `chats.ts`, `ping.ts`) и монтируются через oRPC в `src/api/index.ts`. Запросы каталога, профиля, объявлений, бронирований и чатов выполняются через Drizzle и `pg` в Render PostgreSQL. API доступно по `/api/rpc/*`; авторизация — Better Auth на `/api/auth/*` (email + пароль, server-side сессии).
+
+Локально задайте `DATABASE_URL`, `BETTER_AUTH_SECRET` и при необходимости `WEBSITE_URL`/`BETTER_AUTH_URL` в `.env`. Render подставляет URL сервиса автоматически. Начальная миграция `0000_opposite_impossible_man.sql` содержит auth и прикладные таблицы; не запускайте её на существующей базе до сверки схемы.

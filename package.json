@@ -11,6 +11,7 @@
     "build": "turbo build",
     "build:site": "turbo build --filter=@gppw/site",
     "typecheck": "turbo typecheck",
+    "test:api": "turbo run test:api --filter=@gppw/site",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "db:generate": "turbo db:generate",
@@ -20,6 +21,6 @@
   "devDependencies": {
     "oxlint": "^1.87.0",
     "turbo": "2.9.18",
-    "typescript": "7.0.1-rc"
+    "typescript": "5.9.3"
   }
 }

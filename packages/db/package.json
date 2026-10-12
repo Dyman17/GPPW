@@ -22,20 +22,21 @@
   },
   "scripts": {
     "build": "bun run build:esm && bun run build:cjs",
-    "build:esm": "bun build ./src/index.ts ./src/schema/index.ts --outdir ./dist/esm --target node --format esm --external drizzle-orm --external @neondatabase/serverless",
-    "build:cjs": "bun build ./src/index.ts --outfile ./dist/cjs/index.cjs --target node --format cjs --external drizzle-orm --external @neondatabase/serverless && bun build ./src/schema/index.ts --outfile ./dist/cjs/schema/index.cjs --target node --format cjs --external drizzle-orm --external @neondatabase/serverless",
+    "build:esm": "bun build ./src/index.ts ./src/schema/index.ts --outdir ./dist/esm --target node --format esm --external drizzle-orm --external pg",
+    "build:cjs": "bun build ./src/index.ts --outfile ./dist/cjs/index.cjs --target node --format cjs --external drizzle-orm --external pg && bun build ./src/schema/index.ts --outfile ./dist/cjs/schema/index.cjs --target node --format cjs --external drizzle-orm --external pg",
     "typecheck": "tsc --noEmit",
     "db:generate": "bun --env-file=../../.env drizzle-kit generate",
     "db:migrate": "bun --env-file=../../.env drizzle-kit migrate",
     "db:push": "bun --env-file=../../.env drizzle-kit push"
   },
   "dependencies": {
-    "@neondatabase/serverless": "^1.2.0",
-    "drizzle-orm": "^0.45.2"
+    "drizzle-orm": "^0.45.2",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@types/node": "^25.3.5",
+    "@types/pg": "^8.23.1",
     "drizzle-kit": "^0.31.10",
-    "typescript": "7.0.1-rc"
+    "typescript": "5.9.3"
   }
 }

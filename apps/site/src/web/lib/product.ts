@@ -1,5 +1,5 @@
 import type { Lang, Text } from "./demo";
-import type { AppRouterClient } from "../../api";
+import type { AppRouterClient } from "./router-types";
 export type Listing = Awaited<ReturnType<AppRouterClient["market"]["catalog"]>>[number];
 export type Translate = (ru: string, kz: string, en: string) => string;
 export function translator(lang: Lang): Translate {

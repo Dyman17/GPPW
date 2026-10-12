@@ -1,6 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "globalEnv": ["DATABASE_URL", "DATABASE_URL_UNPOOLED", "BETTER_AUTH_SECRET", "WEBSITE_URL"],
+  "globalEnv": ["DATABASE_URL", "DATABASE_URL_UNPOOLED", "BETTER_AUTH_SECRET", "BETTER_AUTH_URL", "WEBSITE_URL"],
   "tasks": {
     "dev": {
       "dependsOn": ["^build"],
@@ -14,6 +14,9 @@
     "typecheck": {
       "dependsOn": ["^typecheck"],
       "outputs": []
+    },
+    "test:api": {
+      "cache": false
     },
     "db:generate": {
       "cache": false

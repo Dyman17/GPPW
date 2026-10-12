@@ -1,4 +1,4 @@
-import type { RouterClient } from "@orpc/server";
+import { RPCHandler } from "@orpc/server/fetch";
 import { createApp } from "./core/app";
 import { market } from "./routes/market";
 import { chats } from "./routes/chats";
@@ -15,10 +15,17 @@ export const router = {
 };
 
 export type AppRouter = typeof router;
-/** Typed client for the router — used by the web and mobile api clients. */
-export type AppRouterClient = RouterClient<AppRouter>;
 
-const app = createApp(router);
+const app = createApp();
+const handler = new RPCHandler(router);
+app.use("/api/rpc/*", async (c, next) => {
+  const { matched, response } = await handler.handle(c.req.raw, {
+    prefix: "/api/rpc",
+    context: { headers: c.req.raw.headers },
+  });
+  if (matched) return c.newResponse(response.body, response);
+  await next();
+});
 // Rare plain-HTTP endpoints (webhooks, streaming) register here with full
 // paths, e.g. app.post("/api/webhooks/example", ...)
 

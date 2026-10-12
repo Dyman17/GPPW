@@ -38,3 +38,6 @@ vercel/
 
 # macOS
 .DS_Store
+.env*
+.vercel
+/apps/site/api/_handler.js
