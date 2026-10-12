@@ -1,8 +1,7 @@
-import { ORPCError } from "@orpc/server";
 import { base } from "../core/app";
-import { auth } from "../auth";
-export const authed = base.use(async ({ context, next }) => {
-  const session = await auth.api.getSession({ headers: context.headers });
-  if (!session) throw new ORPCError("UNAUTHORIZED");
-  return next({ context: { user: session.user } });
+import { currentUser } from "../mock/store";
+
+// No authentication — every request is served as the single demo account.
+export const authed = base.use(async ({ next }) => {
+  return next({ context: { user: currentUser() } });
 });

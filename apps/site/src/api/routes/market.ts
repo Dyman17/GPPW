@@ -2,34 +2,8 @@ import { z } from "zod";
 import { ORPCError } from "@orpc/server";
 import { base } from "../core/app";
 import { authed } from "../middleware/auth";
-import { db, schema as s, and, eq, or, desc } from "@gppw/db";
-import { seed } from "../../web/lib/demo";
-let seeded: Promise<void> | undefined;
-function ensureSeed() {
-  return (seeded ??= (async () => {
-    await db
-      .insert(s.listings)
-      .values(
-        seed.map((i, n) => ({
-          id: i.id,
-          ownerId: null,
-          ownerName: i.owner,
-          grade: i.grade,
-          title: i.title,
-          description: i.description,
-          category: i.category,
-          condition: i.condition,
-          type: i.type,
-          price: i.price,
-          image: i.image,
-          status: "available",
-          demo: true,
-          createdAt: 1791806400000 - n * 60000,
-        })),
-      )
-      .onConflictDoNothing();
-  })());
-}
+import { store, uid, type ListingRow, type ReservationRow } from "../mock/store";
+
 const itemInput = z.object({
   id: z.string().optional(),
   title: z.string().trim().min(2).max(100),
@@ -43,41 +17,29 @@ const itemInput = z.object({
     .max(900000)
     .refine((v) => /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(v)),
 });
+
+const byNewest = (a: ListingRow, b: ListingRow) => b.createdAt - a.createdAt;
+
 export const market = {
-  catalog: base.handler(async () => {
-    await ensureSeed();
-    return db
-      .select()
-      .from(s.listings)
-      .where(eq(s.listings.status, "available"))
-      .orderBy(desc(s.listings.createdAt));
-  }),
+  catalog: base.handler(async () =>
+    store.listings.filter((l) => l.status === "available").sort(byNewest),
+  ),
   item: base.input(z.object({ id: z.string() })).handler(async ({ input }) => {
-    await ensureSeed();
-    const [item] = await db.select().from(s.listings).where(eq(s.listings.id, input.id));
+    const item = store.listings.find((l) => l.id === input.id);
     if (!item || item.status === "pending" || item.status === "removed")
       throw new ORPCError("NOT_FOUND");
     return {
       item,
-      history: await db
-        .select()
-        .from(s.history)
-        .where(eq(s.history.itemId, input.id))
-        .orderBy(s.history.createdAt),
+      history: store.history
+        .filter((h) => h.itemId === input.id)
+        .sort((a, b) => a.createdAt - b.createdAt),
     };
   }),
   mine: authed.handler(({ context }) =>
-    db
-      .select()
-      .from(s.listings)
-      .where(eq(s.listings.ownerId, context.user.id))
-      .orderBy(desc(s.listings.createdAt)),
+    store.listings.filter((l) => l.ownerId === context.user.id).sort(byNewest),
   ),
   profile: authed.handler(async ({ context }) => {
-    const [profile] = await db
-      .select()
-      .from(s.profiles)
-      .where(eq(s.profiles.userId, context.user.id));
+    const profile = store.profiles.find((p) => p.userId === context.user.id);
     return { user: context.user, profile };
   }),
   settings: authed
@@ -89,22 +51,24 @@ export const market = {
       }),
     )
     .handler(async ({ context, input }) => {
-      await db.update(s.user).set({ name: input.name }).where(eq(s.user.id, context.user.id));
-      await db
-        .insert(s.profiles)
-        .values({ userId: context.user.id, school: input.school, grade: input.grade })
-        .onConflictDoUpdate({
-          target: s.profiles.userId,
-          set: { school: input.school, grade: input.grade },
+      context.user.name = input.name;
+      const profile = store.profiles.find((p) => p.userId === context.user.id);
+      if (profile) {
+        profile.school = input.school;
+        profile.grade = input.grade;
+      } else {
+        store.profiles.push({
+          userId: context.user.id,
+          school: input.school,
+          grade: input.grade,
+          role: "student",
         });
+      }
       return { ok: true };
     }),
   publish: authed.input(itemInput).handler(async ({ context, input }) => {
     if (input.type === "sale" && input.price < 1) throw new ORPCError("BAD_REQUEST");
-    const [profile] = await db
-      .select()
-      .from(s.profiles)
-      .where(eq(s.profiles.userId, context.user.id));
+    const profile = store.profiles.find((p) => p.userId === context.user.id);
     if (!profile)
       throw new ORPCError("BAD_REQUEST", {
         message: "Complete your school and class in profile settings.",
@@ -124,98 +88,82 @@ export const market = {
       status: "pending",
     };
     if (input.id) {
-      const [old] = await db
-        .select()
-        .from(s.listings)
-        .where(and(eq(s.listings.id, input.id), eq(s.listings.ownerId, context.user.id)));
+      const old = store.listings.find(
+        (l) => l.id === input.id && l.ownerId === context.user.id,
+      );
       if (!old) throw new ORPCError("FORBIDDEN");
       if (old.status === "reserved" || old.status === "transferred")
         throw new ORPCError("CONFLICT");
-      await db.update(s.listings).set(values).where(eq(s.listings.id, input.id));
+      Object.assign(old, values);
       return { id: input.id };
     }
-    const id = crypto.randomUUID();
-    await db
-      .insert(s.listings)
-      .values({
-        ...values,
-        id,
-        ownerId: context.user.id,
-        ownerName: context.user.name,
-        grade: profile.grade,
-        createdAt: Date.now(),
-      });
-    await db
-      .insert(s.history)
-      .values({ id: crypto.randomUUID(), itemId: id, kind: "created", createdAt: Date.now() });
+    const id = uid();
+    store.listings.push({
+      ...values,
+      id,
+      ownerId: context.user.id,
+      ownerName: context.user.name,
+      grade: profile.grade,
+      demo: false,
+      createdAt: Date.now(),
+    });
+    store.history.push({ id: uid(), itemId: id, kind: "created", createdAt: Date.now() });
     return { id };
   }),
   withdraw: authed.input(z.object({ id: z.string() })).handler(async ({ context, input }) => {
-    const [i] = await db
-      .select()
-      .from(s.listings)
-      .where(and(eq(s.listings.id, input.id), eq(s.listings.ownerId, context.user.id)));
-    if (!i) throw new ORPCError("FORBIDDEN");
-    if (["reserved", "transferred"].includes(i.status)) throw new ORPCError("CONFLICT");
-    await db.update(s.listings).set({ status: "removed" }).where(eq(s.listings.id, i.id));
+    const item = store.listings.find(
+      (l) => l.id === input.id && l.ownerId === context.user.id,
+    );
+    if (!item) throw new ORPCError("FORBIDDEN");
+    if (["reserved", "transferred"].includes(item.status)) throw new ORPCError("CONFLICT");
+    item.status = "removed";
     return { ok: true };
   }),
-  saved: authed.handler(async ({ context }) => {
-    return db
-      .select({ item: s.listings })
-      .from(s.favorites)
-      .innerJoin(s.listings, eq(s.favorites.itemId, s.listings.id))
-      .where(eq(s.favorites.userId, context.user.id))
-      .then((rows) => rows.map((r) => r.item));
-  }),
+  saved: authed.handler(async ({ context }) =>
+    store.favorites
+      .filter((f) => f.userId === context.user.id)
+      .map((f) => store.listings.find((l) => l.id === f.itemId))
+      .filter((l): l is ListingRow => !!l),
+  ),
   save: authed
     .input(z.object({ id: z.string(), saved: z.boolean() }))
     .handler(async ({ context, input }) => {
       const id = context.user.id + ":" + input.id;
-      if (input.saved)
-        await db
-          .insert(s.favorites)
-          .values({ id, userId: context.user.id, itemId: input.id })
-          .onConflictDoNothing();
-      else await db.delete(s.favorites).where(eq(s.favorites.id, id));
+      const idx = store.favorites.findIndex((f) => f.id === id);
+      if (input.saved) {
+        if (idx === -1) store.favorites.push({ id, userId: context.user.id, itemId: input.id });
+      } else if (idx !== -1) {
+        store.favorites.splice(idx, 1);
+      }
       return { ok: true };
     }),
   moderation: authed.handler(async ({ context }) => {
-    const [profile] = await db
-      .select()
-      .from(s.profiles)
-      .where(eq(s.profiles.userId, context.user.id));
+    const profile = store.profiles.find((p) => p.userId === context.user.id);
     if (!profile || !["moderator", "admin"].includes(profile.role))
       throw new ORPCError("FORBIDDEN");
-    return db.select().from(s.listings).where(eq(s.listings.status, "pending"));
+    return store.listings.filter((l) => l.status === "pending");
   }),
   moderate: authed
     .input(z.object({ id: z.string(), approve: z.boolean() }))
     .handler(async ({ context, input }) => {
-      const [profile] = await db
-        .select()
-        .from(s.profiles)
-        .where(eq(s.profiles.userId, context.user.id));
+      const profile = store.profiles.find((p) => p.userId === context.user.id);
       if (!profile || !["moderator", "admin"].includes(profile.role))
         throw new ORPCError("FORBIDDEN");
-      await db
-        .update(s.listings)
-        .set({ status: input.approve ? "available" : "removed" })
-        .where(and(eq(s.listings.id, input.id), eq(s.listings.status, "pending")));
+      const item = store.listings.find((l) => l.id === input.id && l.status === "pending");
+      if (item) item.status = input.approve ? "available" : "removed";
       return { ok: true };
     }),
   bookings: authed.handler(async ({ context }) =>
-    db
-      .select({ booking: s.reservations, item: s.listings })
-      .from(s.reservations)
-      .innerJoin(s.listings, eq(s.reservations.itemId, s.listings.id))
-      .where(
-        or(
-          eq(s.reservations.buyerId, context.user.id),
-          eq(s.reservations.sellerId, context.user.id),
-        ),
+    store.reservations
+      .filter(
+        (b) => b.buyerId === context.user.id || b.sellerId === context.user.id,
       )
-      .orderBy(desc(s.reservations.createdAt)),
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .map((booking) => ({
+        booking,
+        item: store.listings.find((l) => l.id === booking.itemId),
+      }))
+      .filter((row): row is { booking: ReservationRow; item: ListingRow } => !!row.item),
   ),
   reserve: authed
     .input(
@@ -227,83 +175,60 @@ export const market = {
     )
     .handler(async ({ context, input }) => {
       if (new Date(input.date).getTime() < Date.now()) throw new ORPCError("BAD_REQUEST");
-      return db.transaction(async (tx) => {
-        const [i] = await tx.select().from(s.listings).where(eq(s.listings.id, input.itemId));
-        if (!i || i.status !== "available" || i.demo || !i.ownerId || i.ownerId === context.user.id)
-          throw new ORPCError("CONFLICT");
-        const [reserved] = await tx
-          .update(s.listings)
-          .set({ status: "reserved" })
-          .where(and(eq(s.listings.id, i.id), eq(s.listings.status, "available")))
-          .returning();
-        if (!reserved) throw new ORPCError("CONFLICT");
-        const id = crypto.randomUUID();
-        await tx
-          .insert(s.reservations)
-          .values({
-            id,
-            itemId: i.id,
-            buyerId: context.user.id,
-            sellerId: i.ownerId,
-            date: input.date,
-            place: input.place,
-            createdAt: Date.now(),
-          });
-        return { id };
+      const item = store.listings.find((l) => l.id === input.itemId);
+      if (!item || item.status !== "available" || item.demo || !item.ownerId)
+        throw new ORPCError("CONFLICT");
+      if (item.ownerId === context.user.id) throw new ORPCError("CONFLICT");
+      item.status = "reserved";
+      const id = uid();
+      store.reservations.push({
+        id,
+        itemId: item.id,
+        buyerId: context.user.id,
+        sellerId: item.ownerId,
+        date: input.date,
+        place: input.place,
+        status: "pending",
+        buyerConfirmed: false,
+        sellerConfirmed: false,
+        createdAt: Date.now(),
       });
+      return { id };
     }),
   bookingAction: authed
     .input(z.object({ id: z.string(), action: z.enum(["accept", "cancel", "confirm"]) }))
-    .handler(async ({ context, input }) =>
-      db.transaction(async (tx) => {
-        const [b] = await tx.select().from(s.reservations).where(eq(s.reservations.id, input.id));
-        if (!b || ![b.buyerId, b.sellerId].includes(context.user.id))
-          throw new ORPCError("FORBIDDEN");
-        if (input.action === "accept") {
-          if (context.user.id !== b.sellerId || b.status !== "pending")
-            throw new ORPCError("CONFLICT");
-          await tx
-            .update(s.reservations)
-            .set({ status: "confirmed" })
-            .where(eq(s.reservations.id, b.id));
-        } else if (input.action === "cancel") {
-          if (!["pending", "confirmed"].includes(b.status)) throw new ORPCError("CONFLICT");
-          await tx
-            .update(s.reservations)
-            .set({ status: "cancelled" })
-            .where(eq(s.reservations.id, b.id));
-          await tx
-            .update(s.listings)
-            .set({ status: "available" })
-            .where(eq(s.listings.id, b.itemId));
-        } else {
-          if (b.status !== "confirmed") throw new ORPCError("CONFLICT");
-          const buyerConfirmed = b.buyerConfirmed || context.user.id === b.buyerId;
-          const sellerConfirmed = b.sellerConfirmed || context.user.id === b.sellerId;
-          await tx
-            .update(s.reservations)
-            .set({
-              buyerConfirmed,
-              sellerConfirmed,
-              status: buyerConfirmed && sellerConfirmed ? "done" : "confirmed",
-            })
-            .where(eq(s.reservations.id, b.id));
-          if (buyerConfirmed && sellerConfirmed) {
-            await tx
-              .update(s.listings)
-              .set({ status: "transferred" })
-              .where(eq(s.listings.id, b.itemId));
-            await tx
-              .insert(s.history)
-              .values({
-                id: crypto.randomUUID(),
-                itemId: b.itemId,
-                kind: "transferred",
-                createdAt: Date.now(),
-              });
-          }
+    .handler(async ({ context, input }) => {
+      const booking = store.reservations.find((b) => b.id === input.id);
+      if (!booking || ![booking.buyerId, booking.sellerId].includes(context.user.id))
+        throw new ORPCError("FORBIDDEN");
+      const item = store.listings.find((l) => l.id === booking.itemId);
+      if (input.action === "accept") {
+        if (context.user.id !== booking.sellerId || booking.status !== "pending")
+          throw new ORPCError("CONFLICT");
+        booking.status = "confirmed";
+      } else if (input.action === "cancel") {
+        if (!["pending", "confirmed"].includes(booking.status)) throw new ORPCError("CONFLICT");
+        booking.status = "cancelled";
+        if (item) item.status = "available";
+      } else {
+        if (booking.status !== "confirmed") throw new ORPCError("CONFLICT");
+        const buyerConfirmed = booking.buyerConfirmed || context.user.id === booking.buyerId;
+        const sellerConfirmed = booking.sellerConfirmed || context.user.id === booking.sellerId;
+        booking.buyerConfirmed = buyerConfirmed;
+        booking.sellerConfirmed = sellerConfirmed;
+        booking.status = buyerConfirmed && sellerConfirmed ? "done" : "confirmed";
+        if (buyerConfirmed && sellerConfirmed && item) {
+          item.status = "transferred";
+          store.history.push({
+            id: uid(),
+            itemId: item.id,
+            kind: "transferred",
+            createdAt: Date.now(),
+          });
         }
-        return { ok: true };
-      }),
-    ),
+      }
+      return { ok: true };
+    }),
 };
+
+export type { ReservationRow };

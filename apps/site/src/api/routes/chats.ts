@@ -1,93 +1,70 @@
 import { z } from "zod";
 import { ORPCError } from "@orpc/server";
-import { db, schema as s, eq, and, or, desc, gt, ne } from "@gppw/db";
 import { authed } from "../middleware/auth";
-async function access(id: string, userId: string) {
-  const [chat] = await db.select().from(s.conversations).where(eq(s.conversations.id, id));
+import { store, uid, findUser, type ConversationRow } from "../mock/store";
+
+function access(id: string, userId: string): ConversationRow {
+  const chat = store.conversations.find((c) => c.id === id);
   if (!chat || ![chat.buyerId, chat.sellerId].includes(userId)) throw new ORPCError("FORBIDDEN");
   return chat;
 }
+
+function partnerOf(chat: ConversationRow, userId: string) {
+  const otherId = chat.buyerId === userId ? chat.sellerId : chat.buyerId;
+  const item = store.listings.find((l) => l.id === chat.itemId);
+  return findUser(otherId) ?? { id: otherId, name: item?.ownerName ?? "Пользователь" };
+}
+
 export const chats = {
   list: authed.handler(async ({ context }) => {
-    const rows = await db
-      .select()
-      .from(s.conversations)
-      .where(
-        or(
-          eq(s.conversations.buyerId, context.user.id),
-          eq(s.conversations.sellerId, context.user.id),
-        ),
-      )
-      .orderBy(desc(s.conversations.createdAt));
-    return Promise.all(
-      rows.map(async (chat) => {
-        const [item] = await db.select().from(s.listings).where(eq(s.listings.id, chat.itemId));
-        const [partner] = await db
-          .select({ id: s.user.id, name: s.user.name })
-          .from(s.user)
-          .where(eq(s.user.id, chat.buyerId === context.user.id ? chat.sellerId : chat.buyerId));
-        const [last] = await db
-          .select()
-          .from(s.messages)
-          .where(eq(s.messages.chatId, chat.id))
-          .orderBy(desc(s.messages.createdAt))
-          .limit(1);
-        const unread = await db
-          .select({ id: s.messages.id })
-          .from(s.messages)
-          .where(
-            and(
-              eq(s.messages.chatId, chat.id),
-              ne(s.messages.senderId, context.user.id),
-              gt(
-                s.messages.createdAt,
-                chat.buyerId === context.user.id ? chat.buyerReadAt : chat.sellerReadAt,
-              ),
-            ),
-          );
-        return { chat, item, partner, last, unread: unread.length };
-      }),
-    );
+    return store.conversations
+      .filter((c) => c.buyerId === context.user.id || c.sellerId === context.user.id)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .map((chat) => {
+        const item = store.listings.find((l) => l.id === chat.itemId);
+        const messages = store.messages
+          .filter((m) => m.chatId === chat.id)
+          .sort((a, b) => a.createdAt - b.createdAt);
+        const last = messages[messages.length - 1];
+        const readAt = chat.buyerId === context.user.id ? chat.buyerReadAt : chat.sellerReadAt;
+        const unread = messages.filter(
+          (m) => m.senderId !== context.user.id && m.createdAt > readAt,
+        ).length;
+        return { chat, item, partner: partnerOf(chat, context.user.id), last, unread };
+      });
   }),
   open: authed.input(z.object({ itemId: z.string() })).handler(async ({ context, input }) => {
-    const [i] = await db.select().from(s.listings).where(eq(s.listings.id, input.itemId));
+    const item = store.listings.find((l) => l.id === input.itemId);
     if (
-      !i ||
-      i.demo ||
-      !i.ownerId ||
-      i.ownerId === context.user.id ||
-      i.status === "removed" ||
-      i.status === "pending"
+      !item ||
+      item.demo ||
+      !item.ownerId ||
+      item.ownerId === context.user.id ||
+      item.status === "removed" ||
+      item.status === "pending"
     )
       throw new ORPCError("BAD_REQUEST");
     const id = input.itemId + ":" + context.user.id;
-    await db
-      .insert(s.conversations)
-      .values({
+    if (!store.conversations.some((c) => c.id === id)) {
+      store.conversations.push({
         id,
-        itemId: i.id,
+        itemId: item.id,
         buyerId: context.user.id,
-        sellerId: i.ownerId,
+        sellerId: item.ownerId,
+        buyerReadAt: 0,
+        sellerReadAt: 0,
         createdAt: Date.now(),
-      })
-      .onConflictDoNothing();
+      });
+    }
     return { id };
   }),
   messages: authed.input(z.object({ id: z.string() })).handler(async ({ context, input }) => {
-    const chat = await access(input.id, context.user.id);
-    await db
-      .update(s.conversations)
-      .set(
-        chat.buyerId === context.user.id
-          ? { buyerReadAt: Date.now() }
-          : { sellerReadAt: Date.now() },
-      )
-      .where(eq(s.conversations.id, chat.id));
-    return db
-      .select()
-      .from(s.messages)
-      .where(eq(s.messages.chatId, chat.id))
-      .orderBy(s.messages.createdAt);
+    const chat = access(input.id, context.user.id);
+    if (chat.buyerId === context.user.id) chat.buyerReadAt = Date.now();
+    else chat.sellerReadAt = Date.now();
+    return store.messages
+      .filter((m) => m.chatId === chat.id)
+      .sort((a, b) => a.createdAt - b.createdAt);
   }),
   send: authed
     .input(
@@ -104,19 +81,17 @@ export const chats = {
         .refine((v) => !!v.body || !!v.image),
     )
     .handler(async ({ context, input }) => {
-      await access(input.id, context.user.id);
+      access(input.id, context.user.id);
       const createdAt = Date.now();
-      const id = crypto.randomUUID();
-      await db
-        .insert(s.messages)
-        .values({
-          id,
-          chatId: input.id,
-          senderId: context.user.id,
-          body: input.body,
-          image: input.image,
-          createdAt,
-        });
+      const id = uid();
+      store.messages.push({
+        id,
+        chatId: input.id,
+        senderId: context.user.id,
+        body: input.body,
+        image: input.image ?? null,
+        createdAt,
+      });
       return { id, createdAt };
     }),
 };

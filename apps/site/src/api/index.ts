@@ -1,6 +1,5 @@
 import type { RouterClient } from "@orpc/server";
 import { createApp } from "./core/app";
-import { auth } from "./auth";
 import { market } from "./routes/market";
 import { chats } from "./routes/chats";
 import { ping } from "./routes/ping";
@@ -20,8 +19,7 @@ export type AppRouter = typeof router;
 export type AppRouterClient = RouterClient<AppRouter>;
 
 const app = createApp(router);
-app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw));
-// Rare plain-HTTP endpoints (webhooks, streaming, the Better Auth handler)
-// register here with full paths, e.g. app.post("/api/webhooks/example", ...)
+// Rare plain-HTTP endpoints (webhooks, streaming) register here with full
+// paths, e.g. app.post("/api/webhooks/example", ...)
 
 export default app;

@@ -4,7 +4,7 @@ import app from "../src/api";
 // Vercel deploys this file as the `/api` function (non-Next projects have no
 // file-based catch-all, so ALL /api/* paths are funneled here by the rewrite
 // in apps/site/vercel.json). Hono then routes them to the oRPC procedures
-// (/api/rpc/*) and the Better Auth handler (/api/auth/*).
+// (/api/rpc/*). Data is served from an in-memory mock store — no database.
 const handler = handle(app);
 
 export const GET = handler;
