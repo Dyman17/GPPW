@@ -1,9 +1,8 @@
 import { z } from "zod";
 import { ORPCError } from "@orpc/server";
-import { and, eq, or, desc } from "drizzle-orm";
 import { base } from "../core/app";
 import { authed } from "../middleware/auth";
-import { db, schema as s } from "@gppw/db";
+import { db, schema as s, and, eq, or, desc } from "@gppw/db";
 import { seed } from "../../web/lib/demo";
 let seeded: Promise<void> | undefined;
 function ensureSeed() {

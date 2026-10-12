@@ -22,7 +22,6 @@
     "better-auth": "1.6.19",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "drizzle-orm": "^0.45.2",
     "hono": "^4.12.10",
     "lucide-react": "^0.577.0",
     "qrcode.react": "^4.2.0",

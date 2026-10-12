@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { ORPCError } from "@orpc/server";
-import { eq, and, or, desc, gt, ne } from "drizzle-orm";
-import { db, schema as s } from "@gppw/db";
+import { db, schema as s, eq, and, or, desc, gt, ne } from "@gppw/db";
 import { authed } from "../middleware/auth";
 async function access(id: string, userId: string) {
   const [chat] = await db.select().from(s.conversations).where(eq(s.conversations.id, id));
