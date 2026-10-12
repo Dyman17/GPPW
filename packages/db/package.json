@@ -2,11 +2,28 @@
   "name": "@gppw/db",
   "private": true,
   "type": "module",
+  "main": "./dist/cjs/index.cjs",
+  "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./schema": "./src/schema/index.ts"
+    ".": {
+      "types": "./src/index.ts",
+      "development": "./src/index.ts",
+      "import": "./dist/esm/index.js",
+      "require": "./dist/cjs/index.cjs",
+      "default": "./dist/esm/index.js"
+    },
+    "./schema": {
+      "types": "./src/schema/index.ts",
+      "development": "./src/schema/index.ts",
+      "import": "./dist/esm/schema/index.js",
+      "require": "./dist/cjs/schema/index.cjs",
+      "default": "./dist/esm/schema/index.js"
+    }
   },
   "scripts": {
+    "build": "bun run build:esm && bun run build:cjs",
+    "build:esm": "bun build ./src/index.ts ./src/schema/index.ts --outdir ./dist/esm --target node --format esm --external drizzle-orm --external @neondatabase/serverless",
+    "build:cjs": "bun build ./src/index.ts --outfile ./dist/cjs/index.cjs --target node --format cjs --external drizzle-orm --external @neondatabase/serverless && bun build ./src/schema/index.ts --outfile ./dist/cjs/schema/index.cjs --target node --format cjs --external drizzle-orm --external @neondatabase/serverless",
     "typecheck": "tsc --noEmit",
     "db:generate": "bun --env-file=../../.env drizzle-kit generate",
     "db:migrate": "bun --env-file=../../.env drizzle-kit migrate",
